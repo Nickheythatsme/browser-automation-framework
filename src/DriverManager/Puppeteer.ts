@@ -1,4 +1,6 @@
 import puppeteer from 'puppeteer';
+import fs from 'fs';
+import path from 'path';
 
 export interface DriverType extends puppeteer.Browser {}
 
@@ -39,4 +41,51 @@ async function initPuppeteer(opts: LaunchOptions): Promise<puppeteer.Browser> {
         (await browser.pages())[0].goto(opts.startPage);
     }
     return browser;
+}
+
+export const Utils = {
+    createDir: async (path: string) => {
+        if(!fs.existsSync(path)) {
+            fs.mkdirSync(path, {recursive: true});
+        }
+    },
+    savePageContents: async (page: PageType, savePath: string, filename: string = 'contents.html') => {
+        Utils.createDir(savePath);
+        fs.writeFileSync(path.join(savePath, filename), await page.content());
+    },
+    loadPageContents: async (page: PageType, loadPath: string, filename: string) => {
+        let content: string = fs.readFileSync(path.join(loadPath, filename), {encoding: 'utf8'});
+        await page.setContent(content.toString());
+    },
+    acquireFileLock: async (dirPath: string) => {
+        if (fs.existsSync(path.join(dirPath, 'lock'))) {
+            await new Promise((resolve, reject) => {
+                fs.watchFile(path.join(dirPath, 'lock'), {persistent: false}, () => {
+                    if (!fs.existsSync(path.join(dirPath, 'lock'))) {
+                        resolve();
+                    }
+                });
+            })
+        }
+        fs.writeFileSync(path.join(dirPath, 'lock'), '');
+    },
+    releaseFileLock: async (dirPath: string) => {
+        try {
+            fs.unlinkSync(path.join(dirPath, 'lock'));
+        } catch(err) {console.log('error removing lock')}
+    },
+    saveScreenshot: async (page: PageType, savePath: string, filename: string) => {
+        Utils.createDir(savePath);
+        let index = 0;
+        Utils.acquireFileLock(savePath);
+        for (let fileName of fs.readdirSync(savePath, 'utf8')) {
+            let num = Number.parseInt(fileName.split('.')[0]);
+            if (num != Number.NaN && num >= index) {
+                index = num + 1;
+            }
+        }
+        let fullPath = path.join(savePath, `${index}.png`);
+        await page.screenshot({path: fullPath, type: 'png'})
+        Utils.releaseFileLock(savePath);
+    },
 }

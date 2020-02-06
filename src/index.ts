@@ -1,7 +1,7 @@
-import DriverManager from './DriverManager';
+import DriverManager, {initManager} from './DriverManager';
 
 async function runTest(instance: number) {
-    let driverManager = await DriverManager.initDriverManager({headless: false});
+    let driverManager = await initManager({headless: false});
     let r = await driverManager
         .goto('https://airbnb.com')
         .wait(5000)
