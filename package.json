@@ -1,0 +1,23 @@
+{
+  "name": "test-framework",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "npm run-script build && node dist/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "npm run-script build && tsc -p tsconfig.json -w & ENV=dev nodemon -w dist dist/index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "puppeteer": "^2.0.0",
+    "typescript": "^3.7.5"
+  },
+  "devDependencies": {
+    "@types/puppeteer": "^2.0.0",
+    "nodemon": "^2.0.2"
+  }
+}
