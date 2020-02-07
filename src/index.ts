@@ -3,18 +3,8 @@ import DriverManager, {initManager} from './DriverManager';
 async function runTest(instance: number) {
     let driverManager = await initManager({headless: false});
     let r = await driverManager
-        .goto('https://airbnb.com')
-        .wait(5000)
-        .screenshot()
-        .goto('https://github.com')
-        .screenshot()
-        .savePage()
-        .goto('https://news.google.com')
-        .loadPage()
-        .waitForElement(':root')
-        .click(':root')
-        .click(':root')
-        .click('ot')
+        .goto('https://reddit.com/r/news')
+        .parseExternalLinks()
         .close()
         .execute();
 }

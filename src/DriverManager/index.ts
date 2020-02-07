@@ -16,18 +16,30 @@ class DriverManagerBase {
     });
 
     protected constructor(protected driver: DriverType, protected currentPage: PageType) { 
-        if (this.options.blockImages) {
-            currentPage.setRequestInterception(true).then(() => {
-                currentPage.on('request', interceptedRequest => {
-                    if (interceptedRequest.url().endsWith('.png') || interceptedRequest.url().endsWith('.jpg')) {
-                        interceptedRequest.abort();
-                    }
-                    else {
-                        interceptedRequest.continue();
-                    }
-                });
-            })
-        }
+        currentPage.setRequestInterception(true).then(() => {
+            currentPage.on('request', interceptedRequest => {
+                if (interceptedRequest.url().endsWith('.png') || interceptedRequest.url().endsWith('.jpg')) {
+                    interceptedRequest.abort();
+                }
+                else {
+                    interceptedRequest.continue();
+                }
+                interceptedRequest.continue();
+            });
+        })
+
+    }
+
+    private async saveAndFail(error:any, actionType: string, args?: object) {
+        console.log(`>>Exception thrown in "${actionType}"\n>>Args: ${JSON.stringify(args)}\n>>Message:\n>>${error.message || error}`);
+        console.log(`>>Saving state to ${path.join(this.options.resultsLocation, 'failed-contents.html')}`);
+        await Utils.savePageContents(
+            this.currentPage,
+            path.join(this.options.resultsLocation), 
+            'failed-contents.html'
+        );
+        await this.driver.close();
+
     }
 
     protected appendDriverActionChain(newAction: DriverAction, actionType: string, args?: object) {
@@ -37,14 +49,7 @@ class DriverManagerBase {
                 await newAction(manager);
                 return manager;
             } catch(error) {
-                console.log(`>>Exception thrown in "${actionType}"\n>>Args: ${JSON.stringify(args)}\n>>Message:\n>>${error.message || error}`);
-                console.log(`>>Saving state to ${path.join(this.options.resultsLocation, 'failed-contents.html')}`);
-                await Utils.savePageContents(
-                    this.currentPage,
-                    path.join(this.options.resultsLocation), 
-                    'failed-contents.html'
-                );
-                await this.driver.close();
+                this.saveAndFail(error, actionType, args);
                 throw error;
             }
         });
@@ -111,10 +116,27 @@ export default class DriverManager extends DriverManagerBase {
         return this;
     }
 
-    public loadPage() {
+    public loadPage(fileName?: string) {
         this.appendDriverActionChain(async manager => {
-            await Utils.loadPageContents(manager.currentPage, manager.options.resultsLocation, 'contents.html');
+            await Utils.loadPageContents(manager.currentPage, manager.options.resultsLocation, fileName || 'contents.html');
         }, 'loadPage')
+        return this;
+    }
+
+    public parseExternalLinks() {
+        this.appendDriverActionChain(async manager => {
+            await manager.currentPage.waitForSelector('*[href]');
+            const links = await manager.currentPage.$$eval('*[href]', aElems => aElems.map(aElem => aElem.getAttribute('href')));
+            const hostname = new URL(await manager.currentPage.url()).origin;
+            console.log('Link count: ', links.length);
+            for (let link of links) {
+                let linkFull = new URL(<string>link, hostname);
+                try {
+                    await manager.currentPage.goto(linkFull.toString());
+                    console.log('SUCCESS');
+                } catch(err) { console.log('Cannot go to page: ', err)}
+            }
+        }, 'parseExternalLinks')
         return this;
     }
 
