@@ -1,4 +1,4 @@
-import {initDriver, LaunchOptions, DriverType, PageType, Utils} from './Puppeteer';
+import { initDriver, LaunchOptions, DriverType, PageType, Utils } from './Puppeteer';
 import moment from 'moment';
 import path from 'path';
 
@@ -18,7 +18,7 @@ class DriverBase {
     }
 
     protected constructor(protected driver: DriverType, protected page: PageType, options?: DriverOptions) {
-        this.config = {...this.config, ...options};
+        this.config = { ...this.config, ...options };
     }
 
     private async saveState() {
@@ -27,19 +27,19 @@ class DriverBase {
         if (this.config.saveOnFail) {
             try {
                 savePath = await Utils.savePageContents(this.page, this.config.outputDir);
-            } catch(err) {
+            } catch (err) {
                 savePath = 'error saving';
             }
             try {
                 screenshotPath = await Utils.saveScreenshot(this.page, this.config.outputDir);
-            } catch(err) {
+            } catch (err) {
                 screenshotPath = 'error saving';
             }
         }
-        return {savePath, screenshotPath};
+        return { savePath, screenshotPath };
     }
 
-    protected async handleFail(error:any, actionType: string, args?: object) {
+    protected async handleFail(error: any, actionType: string, args?: object) {
         let saveMessage = await this.saveState();
         let message = `
         >>>Exception thrown in "${actionType}"
@@ -54,7 +54,7 @@ class DriverBase {
             // Wait forever and catch keyboard interrupt.
             try {
                 await this.page.waitFor(2147483647)
-            } catch(err) {console.log('resuming')}
+            } catch (err) { console.log('resuming') }
         }
         await this.driver.close();
     }
@@ -152,7 +152,7 @@ export default class Driver extends DriverActionChain {
         return this;
     }
 
-    public click(selector: string, opts?: {timeout?: number}) {
+    public click(selector: string, opts?: { timeout?: number }) {
         this.addDriverAction('click', async page => {
             if (opts?.timeout) {
                 await page.waitForSelector(selector);

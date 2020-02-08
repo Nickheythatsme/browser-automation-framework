@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "npm run-script build && node dist/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "echo \"Error: no test specified\"",
     "dev": "npm run-script build && tsc -p tsconfig.json -w & ENV=dev nodemon -w dist dist/index.js"
   },
   "keywords": [],
@@ -19,6 +19,13 @@
   },
   "devDependencies": {
     "@types/puppeteer": "^2.0.0",
-    "nodemon": "^2.0.2"
+    "husky": "^4.2.1",
+    "nodemon": "^2.0.2",
+    "typescript-formatter": "^7.2.2"
+  },
+  "husky": {
+    "hooks": {
+      "pre-commit": "npm test && npx tsfmt -r"
+    }
   }
 }
