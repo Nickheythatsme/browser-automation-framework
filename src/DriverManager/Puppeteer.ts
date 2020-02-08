@@ -49,9 +49,18 @@ export const Utils = {
             fs.mkdirSync(path, {recursive: true});
         }
     },
-    savePageContents: async (page: PageType, savePath: string, filename: string = 'contents.html') => {
+    savePageContents: async (page: PageType, savePath: string) => {
         Utils.createDir(savePath);
-        fs.writeFileSync(path.join(savePath, filename), await page.content());
+        let index = 0;
+        let fullPath = path.join(savePath, 'contents.html');
+        Utils.acquireFileLock(savePath);
+        while (fs.existsSync(fullPath)) {
+            fullPath = path.join(savePath, `${index}-contents.html`);
+            ++index;
+        }
+        fs.writeFileSync(fullPath, await page.content());
+        Utils.releaseFileLock(savePath);
+        return fullPath;
     },
     loadPageContents: async (page: PageType, loadPath: string, filename: string) => {
         let content: string = fs.readFileSync(path.join(loadPath, filename), {encoding: 'utf8'});
@@ -72,9 +81,9 @@ export const Utils = {
     releaseFileLock: async (dirPath: string) => {
         try {
             fs.unlinkSync(path.join(dirPath, 'lock'));
-        } catch(err) {console.log('error removing lock')}
+        } catch(err) {console.log('error removing lock'); throw err}
     },
-    saveScreenshot: async (page: PageType, savePath: string, filename: string) => {
+    saveScreenshot: async (page: PageType, savePath: string) => {
         Utils.createDir(savePath);
         let index = 0;
         Utils.acquireFileLock(savePath);
@@ -87,5 +96,6 @@ export const Utils = {
         let fullPath = path.join(savePath, `${index}.png`);
         await page.screenshot({path: fullPath, type: 'png'})
         Utils.releaseFileLock(savePath);
+        return fullPath;
     },
 }

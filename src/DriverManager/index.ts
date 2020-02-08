@@ -2,157 +2,170 @@ import {initDriver, LaunchOptions, DriverType, PageType, Utils} from './Puppetee
 import moment from 'moment';
 import path from 'path';
 
-type DriverAction = (manager: DriverManager) => Promise<any>
+export interface DriverOptions extends LaunchOptions {
+    outputDir?: string,
+    blockImages?: boolean,
+    hangOnFail?: boolean,
+    saveOnFail?: boolean,
+}
 
-class DriverManagerBase {
-    protected options = {
-        resultsLocation: path.join(process.cwd(), './results'),
+class DriverBase {
+    protected config = {
+        outputDir: path.join(process.cwd(), './results'),
         blockImages: true,
-    }
-    protected resolver: any;
-    protected driverActionChain = new Promise<DriverManager>((resolve) => {
-        this.resolver = resolve;
-        return this;
-    });
-
-    protected constructor(protected driver: DriverType, protected currentPage: PageType) { 
-        currentPage.setRequestInterception(true).then(() => {
-            currentPage.on('request', interceptedRequest => {
-                if (interceptedRequest.url().endsWith('.png') || interceptedRequest.url().endsWith('.jpg')) {
-                    interceptedRequest.abort();
-                }
-                else {
-                    interceptedRequest.continue();
-                }
-                interceptedRequest.continue();
-            });
-        })
-
+        hangOnFail: false,
+        saveOnFail: true,
     }
 
-    private async saveAndFail(error:any, actionType: string, args?: object) {
-        console.log(`>>Exception thrown in "${actionType}"\n>>Args: ${JSON.stringify(args)}\n>>Message:\n>>${error.message || error}`);
-        console.log(`>>Saving state to ${path.join(this.options.resultsLocation, 'failed-contents.html')}`);
-        await Utils.savePageContents(
-            this.currentPage,
-            path.join(this.options.resultsLocation), 
-            'failed-contents.html'
-        );
-        await this.driver.close();
-
+    protected constructor(protected driver: DriverType, protected page: PageType, options?: DriverOptions) {
+        this.config = {...this.config, ...options};
     }
 
-    protected appendDriverActionChain(newAction: DriverAction, actionType: string, args?: object) {
-        this.driverActionChain = this.driverActionChain.then(async manager => {
-            console.log('Running action: ', actionType);
+    private async saveState() {
+        let savePath = 'not saved';
+        let screenshotPath = 'not saved';
+        if (this.config.saveOnFail) {
             try {
-                await newAction(manager);
-                return manager;
-            } catch(error) {
-                this.saveAndFail(error, actionType, args);
-                throw error;
+                savePath = await Utils.savePageContents(this.page, this.config.outputDir);
+            } catch(err) {
+                savePath = 'error saving';
             }
-        });
+            try {
+                screenshotPath = await Utils.saveScreenshot(this.page, this.config.outputDir);
+            } catch(err) {
+                screenshotPath = 'error saving';
+            }
+        }
+        return {savePath, screenshotPath};
+    }
+
+    protected async handleFail(error:any, actionType: string, args?: object) {
+        let saveMessage = await this.saveState();
+        let message = `
+        >>>Exception thrown in "${actionType}"
+        >>>Args: ${JSON.stringify(args)}
+        >>>Message: ${error.message || error}
+        >>>Saved screenshot to: ${saveMessage.screenshotPath}
+        >>>Saved context to: ${saveMessage.savePath}
+        >>>Closing driver...
+        `
+        console.error(message);
+        if (this.config.hangOnFail) {
+            // Wait forever and catch keyboard interrupt.
+            try {
+                await this.page.waitFor(2147483647)
+            } catch(err) {console.log('resuming')}
+        }
+        await this.driver.close();
     }
 }
 
-export default class DriverManager extends DriverManagerBase {
+export type DriverAction = (page: PageType, ...args: any) => Promise<any>;
+interface DriverActionPackage {
+    action: DriverAction,
+    args?: any,
+    name: string,
+    next: DriverActionPackage | null
+}
 
-    constructor(protected driver: DriverType, protected currentPage: PageType) {
-        super(driver, currentPage);
+class DriverActionChain extends DriverBase {
+    protected actionChainHead: DriverActionPackage | null = null;
+    protected actionChainTail: DriverActionPackage | null = null;
+
+    constructor(protected driver: DriverType, protected page: PageType, options?: DriverOptions) {
+        super(driver, page);
     }
 
-    public waitForElement(selector: string, opts?: {timeout?: number, noRaiseOnFail?: boolean}) {
-        this.appendDriverActionChain(async manager => {
-            try {
-                await manager.currentPage.waitForSelector(selector, {timeout: opts?.timeout});
-            } catch(error) {
-                if (!opts?.noRaiseOnFail) {
-                    throw error;
-                }
-            }
-            return manager;
-        }, 'waitForElement', {selector: selector, opts: opts})
-        return this;
+    protected addDriverAction(actionName: string, action: DriverAction, ...actionArgs: any) {
+        let newActionPackage: DriverActionPackage = {
+            action: action,
+            name: actionName,
+            args: actionArgs,
+            next: null
+        }
+        if (!this.actionChainHead) {
+            this.actionChainHead = newActionPackage;
+            this.actionChainTail = newActionPackage;
+        } else {
+            this.actionChainTail!.next = newActionPackage;
+            this.actionChainTail = newActionPackage;
+        }
     }
 
-    public click(selector: string, opts?: object) {
-        this.appendDriverActionChain(async manager => {
-            await manager.currentPage.click(selector);
-        }, 'click');
+    private _clearActionChain(current: DriverActionPackage | null) {
+        if (!current) {
+            return
+        }
+        this._clearActionChain(current.next);
+        current.next = null;
+        return;
+    }
+
+    private clearActionChain() {
+        this._clearActionChain(this.actionChainHead);
+        this.actionChainHead = null;
+        this.actionChainTail = null;
+    }
+
+    private async _perform(actionPackage: DriverActionPackage | null, lastResult?: any): Promise<any> {
+        if (!actionPackage) {
+            return lastResult;
+        }
+        try {
+            let res = await actionPackage.action(this.page, ...actionPackage.args);
+            return await this._perform(actionPackage.next, res);
+        } catch (err) {
+            await this.handleFail(err, actionPackage.name, actionPackage.args);
+            return;
+        }
+    }
+
+    public async perform(): Promise<any> {
+        let res = await this._perform(this.actionChainHead);
+        this.clearActionChain();
+        return res;
+    }
+}
+
+export default class Driver extends DriverActionChain {
+
+    /**
+     * 
+     * @param opts Launch options used to create the driver
+     */
+    public static async initialize(opts?: DriverOptions): Promise<Driver> {
+        let driver = await initDriver(opts);
+        return new Driver(driver, (await driver.pages())[0], opts);
+    }
+
+    public screenshot() {
+        this.addDriverAction('screenshot', async page => {
+            await Utils.saveScreenshot(page, this.config.outputDir);
+        });
         return this;
     }
 
     public goto(url: string) {
-        this.appendDriverActionChain(async manager => {
-            await manager.currentPage.goto(url);
-        }, 'goto', {url: url})
+        this.addDriverAction('goto', async page => {
+            await page.goto(url);
+        }, url);
         return this;
     }
 
-    public screenshot() {
-        this.appendDriverActionChain(async manager => {
-            await Utils.saveScreenshot(manager.currentPage, manager.options.resultsLocation, '');
-        }, 'screenshot', {path: path})
-        return this;
-    }
-
-    public wait(ms: number) {
-        this.appendDriverActionChain(async manager => {
-            await manager.currentPage.waitFor(ms);
-        }, 'wait', {ms: ms})
+    public click(selector: string, opts?: {timeout?: number}) {
+        this.addDriverAction('click', async page => {
+            if (opts?.timeout) {
+                await page.waitForSelector(selector);
+            }
+            await page.click(selector);
+        }, selector, opts);
         return this;
     }
 
     public close() {
-        this.appendDriverActionChain(async manager => await manager.driver.close(), 'close');
+        this.addDriverAction('close', async page => {
+            await page.browser().close();
+        });
         return this;
     }
-
-    public savePage() {
-        this.appendDriverActionChain(async manager => {
-            await Utils.savePageContents(manager.currentPage, manager.options.resultsLocation, 'contents.html');
-        }, 'savePage')
-        return this;
-    }
-
-    public loadPage(fileName?: string) {
-        this.appendDriverActionChain(async manager => {
-            await Utils.loadPageContents(manager.currentPage, manager.options.resultsLocation, fileName || 'contents.html');
-        }, 'loadPage')
-        return this;
-    }
-
-    public parseExternalLinks() {
-        this.appendDriverActionChain(async manager => {
-            await manager.currentPage.waitForSelector('*[href]');
-            const links = await manager.currentPage.$$eval('*[href]', aElems => aElems.map(aElem => aElem.getAttribute('href')));
-            const hostname = new URL(await manager.currentPage.url()).origin;
-            console.log('Link count: ', links.length);
-            for (let link of links) {
-                let linkFull = new URL(<string>link, hostname);
-                try {
-                    await manager.currentPage.goto(linkFull.toString());
-                    console.log('SUCCESS');
-                } catch(err) { console.log('Cannot go to page: ', err)}
-            }
-        }, 'parseExternalLinks')
-        return this;
-    }
-
-    public execute() {
-        this.resolver(this);
-        return this.driverActionChain;
-    }
-}
-
-/**
- * 
- * @param opts Launch options used to create the driver
- */
-export async function initManager(opts?: LaunchOptions): Promise<DriverManager> {
-    return new Promise(async (resolve) => {
-        let driver = await initDriver(opts);
-        resolve(new DriverManager(driver, (await driver.pages())[0]));
-    });
 }

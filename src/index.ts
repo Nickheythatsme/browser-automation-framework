@@ -1,12 +1,11 @@
-import DriverManager, {initManager} from './DriverManager';
+import Driver from './DriverManager';
 
-async function runTest(instance: number) {
-    let driverManager = await initManager({headless: false});
-    let r = await driverManager
-        .goto('https://reddit.com/r/news')
-        .parseExternalLinks()
-        .close()
-        .execute();
-}
-
-runTest(0).then(() => console.log(`finished: ${0}`)).catch(err => console.log(`errored: ${err}`));
+Driver.initialize({headless: true}).then(async driver => {
+    await driver
+    .goto('https://stackoverflow.com/questions/37042602/how-to-combine-object-properties-in-typescript')
+    .screenshot()
+    .click('a[href="https://stackexchange.com/questions?tab=hot"]', {timeout: 3000})
+    .click('f')
+    .close()
+    .perform()
+});
