@@ -25,7 +25,7 @@
   },
   "husky": {
     "hooks": {
-      "pre-commit": "npx tsfmt -r && git add -A"
+      "pre-commit": "npm run-script start && npx tsfmt -r && git add -A"
     }
   }
 }
