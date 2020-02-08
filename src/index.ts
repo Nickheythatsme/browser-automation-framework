@@ -6,6 +6,7 @@ Driver.initialize({ headless: true }).then(async driver => {
         .screenshot()
         .click('a[href="https://stackexchange.com/questions?tab=hot"]', { timeout: 3000 })
         .click('f')
+        .click('a')
         .close()
         .perform()
 });
